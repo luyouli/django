@@ -859,13 +859,8 @@ class ModelAdmin(BaseModelAdmin):
         for (name, func) in self.admin_site.actions:
             description = getattr(func, 'short_description', name.replace('_', ' '))
             actions.append((func, name, description))
-
-        # Then gather them from the model admin and all parent classes,
-        # starting with self and working back up.
-        for klass in self.__class__.mro()[::-1]:
-            class_actions = getattr(klass, 'actions', []) or []
-            actions.extend(self.get_action(action) for action in class_actions)
-
+        # Add actions from this ModelAdmin.
+        actions.extend(self.get_action(action) for action in self.actions or [])
         # get_action might have returned None, so filter any of those out.
         return filter(None, actions)
 
@@ -1590,7 +1585,8 @@ class ModelAdmin(BaseModelAdmin):
         adminForm = helpers.AdminForm(
             form,
             list(self.get_fieldsets(request, obj)),
-            self.get_prepopulated_fields(request, obj),
+            # Clear prepopulated fields on a view-only form to avoid a crash.
+            self.get_prepopulated_fields(request, obj) if add or self.has_change_permission(request, obj) else {},
             readonly_fields,
             model_admin=self)
         media = self.media + adminForm.media
@@ -1949,7 +1945,24 @@ class ModelAdmin(BaseModelAdmin):
                     'files': request.FILES,
                     'save_as_new': '_saveasnew' in request.POST
                 })
-            formsets.append(FormSet(**formset_params))
+            formset = FormSet(**formset_params)
+
+            def user_deleted_form(request, obj, formset, index):
+                """Return whether or not the user deleted the form."""
+                return (
+                    inline.has_delete_permission(request, obj) and
+                    '{}-{}-DELETE'.format(formset.prefix, index) in request.POST
+                )
+
+            # Bypass validation of each view-only inline form (since the form's
+            # data won't be in request.POST), unless the form was deleted.
+            if not inline.has_change_permission(request, obj):
+                for index, form in enumerate(formset.initial_forms):
+                    if user_deleted_form(request, obj, formset, index):
+                        continue
+                    form._errors = {}
+                    form.cleaned_data = form.initial
+            formsets.append(formset)
             inline_instances.append(inline)
         return formsets, inline_instances
 

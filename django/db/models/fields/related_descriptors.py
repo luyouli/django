@@ -63,6 +63,7 @@ and two directions (forward and reverse) for a total of six combinations.
    ``ReverseManyToManyDescriptor``, use ``ManyToManyDescriptor`` instead.
 """
 
+from django.core.exceptions import FieldError
 from django.db import connections, router, transaction
 from django.db.models import Q, signals
 from django.db.models.query import QuerySet
@@ -576,7 +577,23 @@ def create_reverse_many_to_one_manager(superclass, rel):
                 val = getattr(self.instance, field.attname)
                 if val is None or (val == '' and empty_strings_as_null):
                     return queryset.none()
-            queryset._known_related_objects = {self.field: {self.instance.pk: self.instance}}
+            if self.field.many_to_one:
+                # Guard against field-like objects such as GenericRelation
+                # that abuse create_reverse_many_to_one_manager() with reverse
+                # one-to-many relationships instead and break known related
+                # objects assignment.
+                try:
+                    target_field = self.field.target_field
+                except FieldError:
+                    # The relationship has multiple target fields. Use a tuple
+                    # for related object id.
+                    rel_obj_id = tuple([
+                        getattr(self.instance, target_field.attname)
+                        for target_field in self.field.get_path_info()[-1].target_fields
+                    ])
+                else:
+                    rel_obj_id = getattr(self.instance, target_field.attname)
+                queryset._known_related_objects = {self.field: {rel_obj_id: self.instance}}
             return queryset
 
         def _remove_prefetched_objects(self):

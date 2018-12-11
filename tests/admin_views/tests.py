@@ -1860,7 +1860,7 @@ class AdminViewPermissionsTest(TestCase):
         self.assertContains(response, '<a href="/test_admin/admin9/admin_views/article/" class="closelink">Close</a>')
 
     def test_change_view_post_without_object_change_permission(self):
-        """A POST redirectS to changelist without modifications."""
+        """A POST redirects to changelist without modifications."""
         change_dict = {
             'title': 'Ikke fordømt',
             'content': '<p>edited article</p>',
@@ -1911,6 +1911,96 @@ class AdminViewPermissionsTest(TestCase):
         self.assertEqual(Article.objects.count(), article_count + 1)
         new_article = Article.objects.latest('id')
         self.assertRedirects(post, reverse('admin:admin_views_article_change', args=(new_article.pk,)))
+
+    def test_change_view_with_view_only_inlines(self):
+        """
+        User with change permission to a section but view-only for inlines.
+        """
+        self.viewuser.user_permissions.add(get_perm(Section, get_permission_codename('change', Section._meta)))
+        self.client.force_login(self.viewuser)
+        # GET shows inlines.
+        response = self.client.get(reverse('admin:admin_views_section_change', args=(self.s1.pk,)))
+        self.assertEqual(len(response.context['inline_admin_formsets']), 1)
+        formset = response.context['inline_admin_formsets'][0]
+        self.assertEqual(len(formset.forms), 3)
+        # Valid POST changes the name.
+        data = {
+            'name': 'Can edit name with view-only inlines',
+            'article_set-TOTAL_FORMS': 3,
+            'article_set-INITIAL_FORMS': 3
+        }
+        response = self.client.post(reverse('admin:admin_views_section_change', args=(self.s1.pk,)), data)
+        self.assertRedirects(response, reverse('admin:admin_views_section_changelist'))
+        self.assertEqual(Section.objects.get(pk=self.s1.pk).name, data['name'])
+        # Invalid POST reshows inlines.
+        del data['name']
+        response = self.client.post(reverse('admin:admin_views_section_change', args=(self.s1.pk,)), data)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['inline_admin_formsets']), 1)
+        formset = response.context['inline_admin_formsets'][0]
+        self.assertEqual(len(formset.forms), 3)
+
+    def test_change_view_with_view_and_add_inlines(self):
+        """User has view and add permissions on the inline model."""
+        self.viewuser.user_permissions.add(get_perm(Section, get_permission_codename('change', Section._meta)))
+        self.viewuser.user_permissions.add(get_perm(Article, get_permission_codename('add', Article._meta)))
+        self.client.force_login(self.viewuser)
+        # GET shows inlines.
+        response = self.client.get(reverse('admin:admin_views_section_change', args=(self.s1.pk,)))
+        self.assertEqual(len(response.context['inline_admin_formsets']), 1)
+        formset = response.context['inline_admin_formsets'][0]
+        self.assertEqual(len(formset.forms), 6)
+        # Valid POST creates a new article.
+        data = {
+            'name': 'Can edit name with view-only inlines',
+            'article_set-TOTAL_FORMS': 6,
+            'article_set-INITIAL_FORMS': 3,
+            'article_set-3-id': [''],
+            'article_set-3-title': ['A title'],
+            'article_set-3-content': ['Added content'],
+            'article_set-3-date_0': ['2008-3-18'],
+            'article_set-3-date_1': ['11:54:58'],
+            'article_set-3-section': [str(self.s1.pk)],
+        }
+        response = self.client.post(reverse('admin:admin_views_section_change', args=(self.s1.pk,)), data)
+        self.assertRedirects(response, reverse('admin:admin_views_section_changelist'))
+        self.assertEqual(Section.objects.get(pk=self.s1.pk).name, data['name'])
+        self.assertEqual(Article.objects.count(), 4)
+        # Invalid POST reshows inlines.
+        del data['name']
+        response = self.client.post(reverse('admin:admin_views_section_change', args=(self.s1.pk,)), data)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['inline_admin_formsets']), 1)
+        formset = response.context['inline_admin_formsets'][0]
+        self.assertEqual(len(formset.forms), 6)
+
+    def test_change_view_with_view_and_delete_inlines(self):
+        """User has view and delete permissions on the inline model."""
+        self.viewuser.user_permissions.add(get_perm(Section, get_permission_codename('change', Section._meta)))
+        self.client.force_login(self.viewuser)
+        data = {
+            'name': 'Name is required.',
+            'article_set-TOTAL_FORMS': 6,
+            'article_set-INITIAL_FORMS': 3,
+            'article_set-0-id': [str(self.a1.pk)],
+            'article_set-0-DELETE': ['on'],
+        }
+        # Inline POST details are ignored without delete permission.
+        response = self.client.post(reverse('admin:admin_views_section_change', args=(self.s1.pk,)), data)
+        self.assertRedirects(response, reverse('admin:admin_views_section_changelist'))
+        self.assertEqual(Article.objects.count(), 3)
+        # Deletion successful when delete permission is added.
+        self.viewuser.user_permissions.add(get_perm(Article, get_permission_codename('delete', Article._meta)))
+        data = {
+            'name': 'Name is required.',
+            'article_set-TOTAL_FORMS': 6,
+            'article_set-INITIAL_FORMS': 3,
+            'article_set-0-id': [str(self.a1.pk)],
+            'article_set-0-DELETE': ['on'],
+        }
+        response = self.client.post(reverse('admin:admin_views_section_change', args=(self.s1.pk,)), data)
+        self.assertRedirects(response, reverse('admin:admin_views_section_changelist'))
+        self.assertEqual(Article.objects.count(), 2)
 
     def test_delete_view(self):
         """Delete view should restrict access and actually delete items."""
@@ -3426,10 +3516,10 @@ class AdminCustomQuerysetTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.superuser = User.objects.create_superuser(username='super', password='secret', email='super@example.com')
+        cls.pks = [EmptyModel.objects.create().id for i in range(3)]
 
     def setUp(self):
         self.client.force_login(self.superuser)
-        self.pks = [EmptyModel.objects.create().id for i in range(3)]
         self.super_login = {
             REDIRECT_FIELD_NAME: reverse('admin:index'),
             'username': 'super',
@@ -3687,21 +3777,19 @@ class AdminInlineFileUploadTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.superuser = User.objects.create_superuser(username='super', password='secret', email='super@example.com')
-
-    def setUp(self):
-        self.client.force_login(self.superuser)
-
-        # Set up test Picture and Gallery.
-        # These must be set up here instead of in fixtures in order to allow Picture
-        # to use a NamedTemporaryFile.
         file1 = tempfile.NamedTemporaryFile(suffix=".file1")
         file1.write(b'a' * (2 ** 21))
         filename = file1.name
         file1.close()
-        self.gallery = Gallery(name="Test Gallery")
-        self.gallery.save()
-        self.picture = Picture(name="Test Picture", image=filename, gallery=self.gallery)
-        self.picture.save()
+        cls.gallery = Gallery.objects.create(name='Test Gallery')
+        cls.picture = Picture.objects.create(
+            name='Test Picture',
+            image=filename,
+            gallery=cls.gallery,
+        )
+
+    def setUp(self):
+        self.client.force_login(self.superuser)
 
     def test_form_has_multipart_enctype(self):
         response = self.client.get(
@@ -3740,6 +3828,7 @@ class AdminInlineTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.superuser = User.objects.create_superuser(username='super', password='secret', email='super@example.com')
+        cls.collector = Collector.objects.create(pk=1, name='John Fowles')
 
     def setUp(self):
         self.post_data = {
@@ -3828,8 +3917,6 @@ class AdminInlineTests(TestCase):
         }
 
         self.client.force_login(self.superuser)
-        self.collector = Collector(pk=1, name='John Fowles')
-        self.collector.save()
 
     def test_simple_inline(self):
         "A simple model can be saved as inlines"
@@ -4213,6 +4300,25 @@ class PrePopulatedTest(TestCase):
         """
         response = self.client.get(reverse('admin:admin_views_prepopulatedpostlargeslug_add'))
         self.assertContains(response, "&quot;maxLength&quot;: 1000")  # instead of 1,000
+
+    def test_view_only_add_form(self):
+        """
+        PrePopulatedPostReadOnlyAdmin.prepopulated_fields includes 'slug'
+        which is present in the add view, even if the
+        ModelAdmin.has_change_permission() returns False.
+        """
+        response = self.client.get(reverse('admin7:admin_views_prepopulatedpost_add'))
+        self.assertContains(response, 'data-prepopulated-fields=')
+        self.assertContains(response, '&quot;id&quot;: &quot;#id_slug&quot;')
+
+    def test_view_only_change_form(self):
+        """
+        PrePopulatedPostReadOnlyAdmin.prepopulated_fields includes 'slug'. That
+        doesn't break a view-only change view.
+        """
+        response = self.client.get(reverse('admin7:admin_views_prepopulatedpost_change', args=(self.p1.pk,)))
+        self.assertContains(response, 'data-prepopulated-fields="[]"')
+        self.assertContains(response, '<div class="readonly">%s</div>' % self.p1.slug)
 
 
 @override_settings(ROOT_URLCONF='admin_views.urls')

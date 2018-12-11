@@ -20,11 +20,6 @@ from .models import UnicodeModel, UnserializableModel
 from .routers import TestRouter
 from .test_base import MigrationTestBase
 
-try:
-    import sqlparse
-except ImportError:
-    sqlparse = None
-
 
 class MigrateTests(MigrationTestBase):
     """
@@ -355,22 +350,19 @@ class MigrateTests(MigrationTestBase):
             out.getvalue()
         )
         # Show the plan when an operation is irreversible.
-        # Migration 0004's RunSQL uses a SQL string instead of a list, so
-        # sqlparse may be required for splitting.
-        if sqlparse or not connection.features.requires_sqlparse_for_splitting:
-            # Migrate to the fourth migration.
-            call_command('migrate', 'migrations', '0004', verbosity=0)
-            out = io.StringIO()
-            call_command('migrate', 'migrations', '0003', plan=True, stdout=out, no_color=True)
-            self.assertEqual(
-                'Planned operations:\n'
-                'migrations.0004_fourth\n'
-                '    Raw SQL operation -> IRREVERSIBLE\n',
-                out.getvalue()
-            )
-            # Cleanup by unmigrating everything: fake the irreversible, then
-            # migrate all to zero.
-            call_command('migrate', 'migrations', '0003', fake=True, verbosity=0)
+        # Migrate to the fourth migration.
+        call_command('migrate', 'migrations', '0004', verbosity=0)
+        out = io.StringIO()
+        call_command('migrate', 'migrations', '0003', plan=True, stdout=out, no_color=True)
+        self.assertEqual(
+            'Planned operations:\n'
+            'migrations.0004_fourth\n'
+            '    Raw SQL operation -> IRREVERSIBLE\n',
+            out.getvalue()
+        )
+        # Cleanup by unmigrating everything: fake the irreversible, then
+        # migrate all to zero.
+        call_command('migrate', 'migrations', '0003', fake=True, verbosity=0)
         call_command('migrate', 'migrations', 'zero', verbosity=0)
 
     @override_settings(MIGRATION_MODULES={'migrations': 'migrations.test_migrations_empty'})
@@ -670,6 +662,29 @@ class MigrateTests(MigrationTestBase):
         self.assertIn('Creating tables…', stdout)
         table_name = truncate_name('unmigrated_app_syncdb_classroom', connection.ops.max_name_length())
         self.assertIn('Creating table %s' % table_name, stdout)
+
+    @override_settings(MIGRATION_MODULES={'migrations': 'migrations.test_migrations'})
+    def test_migrate_syncdb_app_with_migrations(self):
+        msg = "Can't use run_syncdb with app 'migrations' as it has migrations."
+        with self.assertRaisesMessage(CommandError, msg):
+            call_command('migrate', 'migrations', run_syncdb=True, verbosity=0)
+
+    @override_settings(INSTALLED_APPS=[
+        'migrations.migrations_test_apps.unmigrated_app_syncdb',
+        'migrations.migrations_test_apps.unmigrated_app_simple',
+    ])
+    def test_migrate_syncdb_app_label(self):
+        """
+        Running migrate --run-syncdb with an app_label only creates tables for
+        the specified app.
+        """
+        stdout = io.StringIO()
+        with mock.patch.object(BaseDatabaseSchemaEditor, 'execute') as execute:
+            call_command('migrate', 'unmigrated_app_syncdb', run_syncdb=True, stdout=stdout)
+            create_table_count = len([call for call in execute.mock_calls if 'CREATE TABLE' in str(call)])
+            self.assertEqual(create_table_count, 2)
+            self.assertGreater(len(execute.mock_calls), 2)
+            self.assertIn('Synchronize unmigrated app: unmigrated_app_syncdb', stdout.getvalue())
 
     @override_settings(MIGRATION_MODULES={"migrations": "migrations.test_migrations_squashed"})
     def test_migrate_record_replaced(self):

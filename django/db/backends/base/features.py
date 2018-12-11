@@ -151,6 +151,9 @@ class BaseDatabaseFeatures:
     # Can the backend introspect the column order (ASC/DESC) for indexes?
     supports_index_column_ordering = True
 
+    # Does the backend support introspection of materialized views?
+    can_introspect_materialized_views = False
+
     # Support for the DISTINCT ON clause
     can_distinct_on_fields = False
 
@@ -194,17 +197,11 @@ class BaseDatabaseFeatures:
     # Does 'a' LIKE 'A' match?
     has_case_insensitive_like = True
 
-    # Does the backend require the sqlparse library for splitting multi-line
-    # statements before executing them?
-    requires_sqlparse_for_splitting = True
-
     # Suffix for backends that don't support "SELECT xxx;" queries.
     bare_select_suffix = ''
 
     # If NULL is implied on columns without needing to be explicitly specified
     implied_column_null = False
-
-    uppercases_column_names = False
 
     # Does the backend support "select for update" queries with limit (and offset)?
     supports_select_for_update_with_limit = True
@@ -229,6 +226,7 @@ class BaseDatabaseFeatures:
     supports_select_intersection = True
     supports_select_difference = True
     supports_slicing_ordering_in_compound = False
+    supports_parentheses_in_compound = True
 
     # Does the database support SQL 2003 FILTER (WHERE ...) in aggregate
     # expressions?

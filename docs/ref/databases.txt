@@ -335,7 +335,7 @@ Connector/Python includes `its own`_.
 mysqlclient
 ~~~~~~~~~~~
 
-Django requires `mysqlclient`_ 1.3.7 or later.
+Django requires `mysqlclient`_ 1.3.13 or later.
 
 MySQL Connector/Python
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -415,10 +415,10 @@ Refer to the :doc:`settings documentation </ref/settings>`.
 
 Connection settings are used in this order:
 
-1. :setting:`OPTIONS`.
-2. :setting:`NAME`, :setting:`USER`, :setting:`PASSWORD`,
-   :setting:`HOST`, :setting:`PORT`
-3. MySQL option files.
+#. :setting:`OPTIONS`.
+#. :setting:`NAME`, :setting:`USER`, :setting:`PASSWORD`, :setting:`HOST`,
+   :setting:`PORT`
+#. MySQL option files.
 
 In other words, if you set the name of the database in :setting:`OPTIONS`,
 this will take precedence over :setting:`NAME`, which would override
@@ -764,9 +764,10 @@ and a user granted ``RESOURCE WITH ADMIN OPTION`` can grant ``RESOURCE``, such
 a user cannot grant the individual privileges (e.g. ``CREATE TABLE``), and thus
 ``RESOURCE WITH ADMIN OPTION`` is not usually sufficient for running tests.
 
-Some test suites also create views; to run these, the user also needs
-the ``CREATE VIEW WITH ADMIN OPTION`` privilege. In particular, this is needed
-for Django's own test suite.
+Some test suites also create views or materialized views; to run these, the
+user also needs ``CREATE VIEW WITH ADMIN OPTION`` and
+``CREATE MATERIALIZED VIEW WITH ADMIN OPTION`` privileges. In particular, this
+is needed for Django's own test suite.
 
 All of these privileges are included in the DBA role, which is appropriate
 for use on a private developer's database.

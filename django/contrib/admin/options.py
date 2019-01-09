@@ -1956,7 +1956,7 @@ class ModelAdmin(BaseModelAdmin):
 
             # Bypass validation of each view-only inline form (since the form's
             # data won't be in request.POST), unless the form was deleted.
-            if not inline.has_change_permission(request, obj):
+            if not inline.has_change_permission(request, obj if change else None):
                 for index, form in enumerate(formset.initial_forms):
                     if user_deleted_form(request, obj, formset, index):
                         continue
@@ -2087,9 +2087,11 @@ class InlineModelAdmin(BaseModelAdmin):
                                     'class_name': p._meta.verbose_name,
                                     'instance': p}
                             )
-                        params = {'class_name': self._meta.model._meta.verbose_name,
-                                  'instance': self.instance,
-                                  'related_objects': get_text_list(objs, _('and'))}
+                        params = {
+                            'class_name': self._meta.model._meta.verbose_name,
+                            'instance': self.instance,
+                            'related_objects': get_text_list(objs, _('and')),
+                        }
                         msg = _("Deleting %(class_name)s %(instance)s would require "
                                 "deleting the following protected related objects: "
                                 "%(related_objects)s")

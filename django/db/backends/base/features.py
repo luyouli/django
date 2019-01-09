@@ -1,5 +1,4 @@
-from django.db.models.aggregates import StdDev
-from django.db.utils import NotSupportedError, ProgrammingError
+from django.db.utils import ProgrammingError
 from django.utils.functional import cached_property
 
 
@@ -235,7 +234,7 @@ class BaseDatabaseFeatures:
     # Does the backend support indexing a TextField?
     supports_index_on_text_field = True
 
-    # Does the backed support window expressions (expression OVER (...))?
+    # Does the backend support window expressions (expression OVER (...))?
     supports_over_clause = False
 
     # Does the backend support CAST with precision?
@@ -276,6 +275,7 @@ class BaseDatabaseFeatures:
 
     # Does the backend support partial indexes (CREATE INDEX ... WHERE ...)?
     supports_partial_indexes = True
+    supports_functions_in_partial_indexes = True
 
     def __init__(self, connection):
         self.connection = connection
@@ -298,12 +298,3 @@ class BaseDatabaseFeatures:
             count, = cursor.fetchone()
             cursor.execute('DROP TABLE ROLLBACK_TEST')
         return count == 0
-
-    @cached_property
-    def supports_stddev(self):
-        """Confirm support for STDDEV and related stats functions."""
-        try:
-            self.connection.ops.check_expression_support(StdDev(1))
-        except NotSupportedError:
-            return False
-        return True

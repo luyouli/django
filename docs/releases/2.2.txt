@@ -166,7 +166,10 @@ Forms
 Generic Views
 ~~~~~~~~~~~~~
 
-* ...
+* The new :meth:`View.setup <django.views.generic.base.View.setup>` hook
+  initializes view attributes before calling
+  :meth:`~django.views.generic.base.View.dispatch`. It allows mixins to setup
+  instance attributes for reuse in child classes.
 
 Internationalization
 ~~~~~~~~~~~~~~~~~~~~
@@ -193,6 +196,10 @@ Management Commands
 
 * On Oracle, :djadmin:`dbshell` is wrapped with ``rlwrap``, if available.
   ``rlwrap`` provides a command history and editing of keyboard input.
+
+* The new :option:`makemigrations --no-header` option avoids writing header
+  comments in generated migration file(s). This option is also available for
+  :djadmin:`squashmigrations`.
 
 Migrations
 ~~~~~~~~~~
@@ -227,6 +234,9 @@ Models
   performed, such as ``Model.save()``, ``QuerySet.update()``, and
   ``Model.delete()``. This improves the performance of autocommit by reducing
   the number of database round trips.
+
+* Added SQLite support for the :class:`~django.db.models.StdDev` and
+  :class:`~django.db.models.Variance` functions.
 
 Requests and Responses
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -264,6 +274,12 @@ Tests
 
 * The new :setting:`ORACLE_MANAGED_FILES <TEST_ORACLE_MANAGED_FILES>` test
   database setting allows using Oracle Managed Files (OMF) tablespaces.
+
+* Deferrable database constraints are now checked at the end of each
+  :class:`~django.test.TestCase` test on SQLite 3.20+, just like on other
+  backends that support deferrable constraints. These checks aren't implemented
+  for older versions of SQLite because they would require expensive table
+  introspection there.
 
 URLs
 ~~~~
@@ -306,19 +322,21 @@ backends.
 * Third party database backends must implement support for partial indexes or
   set ``DatabaseFeatures.supports_partial_indexes`` to ``False``.
 
-* Several ``SchemaEditor`` attributes are changed:
-
-  * ``sql_create_check`` is replaced with ``sql_create_constraint``.
-  * ``sql_delete_check`` is replaced with ``sql_delete_constraint``.
-  * ``sql_create_fk`` is replaced with ``sql_foreign_key_constraint``,
-    ``sql_constraint``, and ``sql_create_constraint``.
-
 * ``DatabaseIntrospection.table_name_converter()`` and
   ``column_name_converter()`` are removed. Third party database backends may
   need to instead implement ``DatabaseIntrospection.identifier_converter()``.
   In that case, the constraint names that
   ``DatabaseIntrospection.get_constraints()`` returns must be normalized by
   ``identifier_converter()``.
+
+* SQL generation for indexes is moved from :class:`~django.db.models.Index` to
+  ``SchemaEditor`` and these ``SchemaEditor`` methods are added:
+
+  * ``_create_primary_key_sql()`` and ``_delete_primary_key_sql()``
+  * ``_delete_index_sql()`` (to pair with ``_create_index_sql()``)
+  * ``_delete_unique_sql`` (to pair with ``_create_unique_sql()``)
+  * ``_delete_fk_sql()`` (to pair with ``_create_fk_sql()``)
+  * ``_create_check_sql()`` and ``_delete_check_sql()``
 
 Admin actions are no longer collected from base ``ModelAdmin`` classes
 ----------------------------------------------------------------------
@@ -428,6 +446,8 @@ Miscellaneous
 * The minimum supported version of ``mysqlclient`` is increased from 1.3.7 to
   1.3.13.
 
+* The minimum supported version of SQLite is increased from 3.7.15 to 3.8.3.
+
 * In an attempt to provide more semantic query data, ``NullBooleanSelect`` now
   renders ``<option>`` values of ``unknown``, ``true``, and ``false`` instead
   of ``1``, ``2``, and ``3``. For backwards compatibility, the old values are
@@ -435,6 +455,14 @@ Miscellaneous
 
 * :attr:`Group.name <django.contrib.auth.models.Group.name>` ``max_length``
   is increased from 80 to 150 characters.
+
+* Tests that violate deferrable database constraints now error when run on
+  SQLite 3.20+, just like on other backends that support such constraints.
+
+* To catch usage mistakes, the test :class:`~django.test.Client` and
+  :func:`django.utils.http.urlencode` now raise ``TypeError`` if ``None`` is
+  passed as a value to encode because ``None`` can't be encoded in GET and POST
+  data. Either pass an empty string or omit the value.
 
 .. _deprecated-features-2.2:
 

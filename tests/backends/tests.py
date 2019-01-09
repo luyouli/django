@@ -340,7 +340,6 @@ class BackendTestCase(TransactionTestCase):
 
     def test_cached_db_features(self):
         self.assertIn(connection.features.supports_transactions, (True, False))
-        self.assertIn(connection.features.supports_stddev, (True, False))
         self.assertIn(connection.features.can_introspect_foreign_keys, (True, False))
 
     def test_duplicate_table_error(self):
@@ -455,13 +454,8 @@ class BackendTestCase(TransactionTestCase):
             connection.init_connection_state()
 
 
-# We don't make these tests conditional because that means we would need to
-# check and differentiate between:
-# * MySQL+InnoDB, MySQL+MYISAM (something we currently can't do).
-# * if sqlite3 (if/once we get #14204 fixed) has referential integrity turned
-#   on or not, something that would be controlled by runtime support and user
-#   preference.
-# verify if its type is django.database.db.IntegrityError.
+# These tests aren't conditional because it would require differentiating
+# between MySQL+InnoDB and MySQL+MYISAM (something we currently can't do).
 class FkConstraintsTests(TransactionTestCase):
 
     available_apps = ['backends']

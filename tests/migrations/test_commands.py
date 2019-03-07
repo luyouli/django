@@ -25,7 +25,7 @@ class MigrateTests(MigrationTestBase):
     """
     Tests running the migrate command.
     """
-    multi_db = True
+    databases = {'default', 'other'}
 
     @override_settings(MIGRATION_MODULES={"migrations": "migrations.test_migrations"})
     def test_migrate(self):
@@ -41,7 +41,7 @@ class MigrateTests(MigrationTestBase):
         call_command('migrate', 'migrations', '0001', verbosity=1, stdout=stdout, no_color=True)
         stdout = stdout.getvalue()
         self.assertIn('Target specific migration: 0001_initial, from migrations', stdout)
-        self.assertIn('Applying migrations.0001_initial… OK', stdout)
+        self.assertIn('Applying migrations.0001_initial... OK', stdout)
         # The correct tables exist
         self.assertTableExists("migrations_author")
         self.assertTableExists("migrations_tribble")
@@ -57,7 +57,7 @@ class MigrateTests(MigrationTestBase):
         call_command('migrate', 'migrations', 'zero', verbosity=1, stdout=stdout, no_color=True)
         stdout = stdout.getvalue()
         self.assertIn('Unapply all migrations: migrations', stdout)
-        self.assertIn('Unapplying migrations.0002_second… OK', stdout)
+        self.assertIn('Unapplying migrations.0002_second... OK', stdout)
         # Tables are gone
         self.assertTableNotExists("migrations_author")
         self.assertTableNotExists("migrations_tribble")
@@ -157,7 +157,7 @@ class MigrateTests(MigrationTestBase):
             call_command("migrate", "migrations", "0001", fake_initial=True, stdout=out, verbosity=1)
             call_command("migrate", "migrations", "0001", fake_initial=True, verbosity=0, database="other")
         self.assertIn(
-            "migrations.0001_initial… faked",
+            "migrations.0001_initial... faked",
             out.getvalue().lower()
         )
         # Run migrations all the way
@@ -208,8 +208,8 @@ class MigrateTests(MigrationTestBase):
         with mock.patch('django.core.management.color.supports_color', lambda *args: False):
             call_command("migrate", "migrations", "0002", fake_initial=True, stdout=out, verbosity=1)
         value = out.getvalue().lower()
-        self.assertIn("migrations.0001_initial… faked", value)
-        self.assertIn("migrations.0002_second… faked", value)
+        self.assertIn("migrations.0001_initial... faked", value)
+        self.assertIn("migrations.0002_second... faked", value)
         # Fake an apply
         call_command("migrate", "migrations", fake=True, verbosity=0)
         # Unmigrate everything
@@ -271,8 +271,8 @@ class MigrateTests(MigrationTestBase):
         call_command("showmigrations", format='plan', stdout=out, verbosity=2)
         self.assertEqual(
             "[ ]  migrations.0001_initial\n"
-            "[ ]  migrations.0003_third … (migrations.0001_initial)\n"
-            "[ ]  migrations.0002_second … (migrations.0001_initial, migrations.0003_third)\n",
+            "[ ]  migrations.0003_third ... (migrations.0001_initial)\n"
+            "[ ]  migrations.0002_second ... (migrations.0001_initial, migrations.0003_third)\n",
             out.getvalue().lower()
         )
         call_command("migrate", "migrations", "0003", verbosity=0)
@@ -290,8 +290,8 @@ class MigrateTests(MigrationTestBase):
         call_command("showmigrations", format='plan', stdout=out, verbosity=2)
         self.assertEqual(
             "[x]  migrations.0001_initial\n"
-            "[x]  migrations.0003_third … (migrations.0001_initial)\n"
-            "[ ]  migrations.0002_second … (migrations.0001_initial, migrations.0003_third)\n",
+            "[x]  migrations.0003_third ... (migrations.0001_initial)\n"
+            "[ ]  migrations.0002_second ... (migrations.0001_initial, migrations.0003_third)\n",
             out.getvalue().lower()
         )
 
@@ -410,10 +410,10 @@ class MigrateTests(MigrationTestBase):
         call_command("showmigrations", format='plan', stdout=out, verbosity=2)
         self.assertEqual(
             "[ ]  migrations.1_auto\n"
-            "[ ]  migrations.2_auto … (migrations.1_auto)\n"
-            "[ ]  migrations.3_squashed_5 … (migrations.2_auto)\n"
-            "[ ]  migrations.6_auto … (migrations.3_squashed_5)\n"
-            "[ ]  migrations.7_auto … (migrations.6_auto)\n",
+            "[ ]  migrations.2_auto ... (migrations.1_auto)\n"
+            "[ ]  migrations.3_squashed_5 ... (migrations.2_auto)\n"
+            "[ ]  migrations.6_auto ... (migrations.3_squashed_5)\n"
+            "[ ]  migrations.7_auto ... (migrations.6_auto)\n",
             out.getvalue().lower()
         )
 
@@ -434,10 +434,10 @@ class MigrateTests(MigrationTestBase):
         call_command("showmigrations", format='plan', stdout=out, verbosity=2)
         self.assertEqual(
             "[x]  migrations.1_auto\n"
-            "[x]  migrations.2_auto … (migrations.1_auto)\n"
-            "[x]  migrations.3_squashed_5 … (migrations.2_auto)\n"
-            "[ ]  migrations.6_auto … (migrations.3_squashed_5)\n"
-            "[ ]  migrations.7_auto … (migrations.6_auto)\n",
+            "[x]  migrations.2_auto ... (migrations.1_auto)\n"
+            "[x]  migrations.3_squashed_5 ... (migrations.2_auto)\n"
+            "[ ]  migrations.6_auto ... (migrations.3_squashed_5)\n"
+            "[ ]  migrations.7_auto ... (migrations.6_auto)\n",
             out.getvalue().lower()
         )
 
@@ -659,7 +659,7 @@ class MigrateTests(MigrationTestBase):
             self.assertGreater(len(execute.mock_calls), 2)
         stdout = stdout.getvalue()
         self.assertIn('Synchronize unmigrated apps: unmigrated_app_syncdb', stdout)
-        self.assertIn('Creating tables…', stdout)
+        self.assertIn('Creating tables...', stdout)
         table_name = truncate_name('unmigrated_app_syncdb_classroom', connection.ops.max_name_length())
         self.assertIn('Creating table %s' % table_name, stdout)
 
@@ -771,7 +771,7 @@ class MakeMigrationsTests(MigrationTestBase):
             init_file = os.path.join(migration_dir, "__init__.py")
             self.assertTrue(os.path.exists(init_file))
 
-            with open(init_file, 'r') as fp:
+            with open(init_file) as fp:
                 content = fp.read()
             self.assertEqual(content, '')
 
@@ -779,7 +779,7 @@ class MakeMigrationsTests(MigrationTestBase):
             initial_file = os.path.join(migration_dir, "0001_initial.py")
             self.assertTrue(os.path.exists(initial_file))
 
-            with open(initial_file, 'r', encoding='utf-8') as fp:
+            with open(initial_file, encoding='utf-8') as fp:
                 content = fp.read()
                 self.assertIn('migrations.CreateModel', content)
                 self.assertIn('initial = True', content)
@@ -924,7 +924,7 @@ class MakeMigrationsTests(MigrationTestBase):
             initial_file = os.path.join(migration_dir, "0001_initial.py")
             self.assertTrue(os.path.exists(initial_file))
 
-            with open(initial_file, 'r', encoding='utf-8') as fp:
+            with open(initial_file, encoding='utf-8') as fp:
                 content = fp.read()
 
                 # Remove all whitespace to check for empty dependencies and operations
@@ -1335,7 +1335,7 @@ class MakeMigrationsTests(MigrationTestBase):
                 migration_file = os.path.join(migration_dir, "%s_%s.py" % (migration_count, migration_name))
                 # Check for existing migration file in migration folder
                 self.assertTrue(os.path.exists(migration_file))
-                with open(migration_file, "r", encoding="utf-8") as fp:
+                with open(migration_file, encoding='utf-8') as fp:
                     content = fp.read()
                     content = content.replace(" ", "")
                 return content
@@ -1455,7 +1455,7 @@ class SquashMigrationsTests(MigrationTestBase):
             call_command("squashmigrations", "migrations", "0002", interactive=False, verbosity=0)
 
             squashed_migration_file = os.path.join(migration_dir, "0001_squashed_0002_second.py")
-            with open(squashed_migration_file, "r", encoding="utf-8") as fp:
+            with open(squashed_migration_file, encoding='utf-8') as fp:
                 content = fp.read()
                 self.assertIn("initial = True", content)
 
@@ -1488,7 +1488,7 @@ class SquashMigrationsTests(MigrationTestBase):
                          interactive=False, verbosity=1, stdout=out)
 
             squashed_migration_file = os.path.join(migration_dir, "0002_second_squashed_0003_third.py")
-            with open(squashed_migration_file, "r", encoding="utf-8") as fp:
+            with open(squashed_migration_file, encoding='utf-8') as fp:
                 content = fp.read()
                 self.assertIn("        ('migrations', '0001_initial')", content)
                 self.assertNotIn("initial = True", content)
@@ -1535,7 +1535,7 @@ class SquashMigrationsTests(MigrationTestBase):
 class AppLabelErrorTests(TestCase):
     """
     This class inherits TestCase because MigrationTestBase uses
-    `availabe_apps = ['migrations']` which means that it's the only installed
+    `available_apps = ['migrations']` which means that it's the only installed
     app. 'django.contrib.auth' must be in INSTALLED_APPS for some of these
     tests.
     """

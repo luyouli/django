@@ -1,29 +1,18 @@
+
 import os
 import re
 from importlib import import_module
 
 from django import get_version
 from django.apps import apps
+# SettingsReference imported for backwards compatibility in Django 2.2.
+from django.conf import SettingsReference  # NOQA
 from django.db import migrations
 from django.db.migrations.loader import MigrationLoader
-from django.db.migrations.serializer import serializer_factory
+from django.db.migrations.serializer import Serializer, serializer_factory
 from django.utils.inspect import get_func_args
 from django.utils.module_loading import module_dir
 from django.utils.timezone import now
-
-
-class SettingsReference(str):
-    """
-    Special subclass of string which actually references a current settings
-    value. It's treated as the value in memory, but serializes out to a
-    settings.NAME attribute reference.
-    """
-
-    def __new__(self, value, setting_name):
-        return str.__new__(self, value)
-
-    def __init__(self, value, setting_name):
-        self.setting_name = setting_name
 
 
 class OperationWriter:
@@ -261,8 +250,7 @@ class MigrationWriter:
                 migrations_package_name)
 
         final_dir = os.path.join(base_dir, *missing_dirs)
-        if not os.path.isdir(final_dir):
-            os.makedirs(final_dir)
+        os.makedirs(final_dir, exist_ok=True)
         for missing_dir in missing_dirs:
             base_dir = os.path.join(base_dir, missing_dir)
             with open(os.path.join(base_dir, "__init__.py"), "w"):
@@ -281,6 +269,14 @@ class MigrationWriter:
     @classmethod
     def serialize(cls, value):
         return serializer_factory(value).serialize()
+
+    @classmethod
+    def register_serializer(cls, type_, serializer):
+        Serializer.register(type_, serializer)
+
+    @classmethod
+    def unregister_serializer(cls, type_):
+        Serializer.unregister(type_)
 
 
 MIGRATION_HEADER_TEMPLATE = """\

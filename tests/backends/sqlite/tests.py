@@ -1,9 +1,13 @@
 import re
 import threading
 import unittest
+from sqlite3 import dbapi2
+from unittest import mock
 
+from django.core.exceptions import ImproperlyConfigured
 from django.db import connection, transaction
 from django.db.models import Avg, StdDev, Sum, Variance
+from django.db.models.aggregates import Aggregate
 from django.db.models.fields import CharField
 from django.db.utils import NotSupportedError
 from django.test import (
@@ -13,10 +17,23 @@ from django.test.utils import isolate_apps
 
 from ..models import Author, Item, Object, Square
 
+try:
+    from django.db.backends.sqlite3.base import check_sqlite_version
+except ImproperlyConfigured:
+    # Ignore "SQLite is too old" when running tests on another database.
+    pass
+
 
 @unittest.skipUnless(connection.vendor == 'sqlite', 'SQLite tests')
 class Tests(TestCase):
     longMessage = True
+
+    def test_check_sqlite_version(self):
+        msg = 'SQLite 3.8.3 or later is required (found 3.8.2).'
+        with mock.patch.object(dbapi2, 'sqlite_version_info', (3, 8, 2)), \
+                mock.patch.object(dbapi2, 'sqlite_version', '3.8.2'), \
+                self.assertRaisesMessage(ImproperlyConfigured, msg):
+            check_sqlite_version()
 
     def test_aggregation(self):
         """
@@ -33,6 +50,17 @@ class Tests(TestCase):
                 Item.objects.all().aggregate(
                     **{'complex': aggregate('last_modified') + aggregate('last_modified')}
                 )
+
+    def test_distinct_aggregation(self):
+        class DistinctAggregate(Aggregate):
+            allow_distinct = True
+        aggregate = DistinctAggregate('first', 'second', distinct=True)
+        msg = (
+            "SQLite doesn't support DISTINCT on aggregate functions accepting "
+            "multiple arguments."
+        )
+        with self.assertRaisesMessage(NotSupportedError, msg):
+            connection.ops.check_expression_support(aggregate)
 
     def test_memory_db_test_name(self):
         """A named in-memory db should be allowed where supported."""

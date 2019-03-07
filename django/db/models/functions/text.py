@@ -67,10 +67,9 @@ class ConcatPair(Func):
     def coalesce(self):
         # null on either side results in null for expression, wrap with coalesce
         c = self.copy()
-        expressions = [
+        c.set_source_expressions([
             Coalesce(expression, Value('')) for expression in c.get_source_expressions()
-        ]
-        c.set_source_expressions(expressions)
+        ])
         return c
 
 
@@ -115,11 +114,11 @@ class Left(Func):
     def get_substr(self):
         return Substr(self.source_expressions[0], Value(1), self.source_expressions[1])
 
-    def use_substr(self, compiler, connection, **extra_context):
+    def as_oracle(self, compiler, connection, **extra_context):
         return self.get_substr().as_oracle(compiler, connection, **extra_context)
 
-    as_oracle = use_substr
-    as_sqlite = use_substr
+    def as_sqlite(self, compiler, connection, **extra_context):
+        return self.get_substr().as_sqlite(compiler, connection, **extra_context)
 
 
 class Length(Transform):
@@ -149,6 +148,22 @@ class LPad(BytesToCharFieldConversionMixin, Func):
 class LTrim(Transform):
     function = 'LTRIM'
     lookup_name = 'ltrim'
+
+
+class MD5(Transform):
+    function = 'MD5'
+    lookup_name = 'md5'
+
+    def as_oracle(self, compiler, connection, **extra_context):
+        return super().as_sql(
+            compiler,
+            connection,
+            template=(
+                "LOWER(RAWTOHEX(STANDARD_HASH(UTL_I18N.STRING_TO_RAW("
+                "%(expressions)s, 'AL32UTF8'), '%(function)s')))"
+            ),
+            **extra_context,
+        )
 
 
 class Ord(Transform):
@@ -183,6 +198,25 @@ class Replace(Func):
 
     def __init__(self, expression, text, replacement=Value(''), **extra):
         super().__init__(expression, text, replacement, **extra)
+
+
+class Reverse(Transform):
+    function = 'REVERSE'
+    lookup_name = 'reverse'
+
+    def as_oracle(self, compiler, connection, **extra_context):
+        # REVERSE in Oracle is undocumented and doesn't support multi-byte
+        # strings. Use a special subquery instead.
+        return super().as_sql(
+            compiler, connection,
+            template=(
+                '(SELECT LISTAGG(s) WITHIN GROUP (ORDER BY n DESC) FROM '
+                '(SELECT LEVEL n, SUBSTR(%(expressions)s, LEVEL, 1) s '
+                'FROM DUAL CONNECT BY LEVEL <= LENGTH(%(expressions)s)) '
+                'GROUP BY %(expressions)s)'
+            ),
+            **extra_context
+        )
 
 
 class Right(Left):

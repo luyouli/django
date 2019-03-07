@@ -47,11 +47,13 @@ def page_not_found(request, exception, template_name=ERROR_404_TEMPLATE_NAME):
     try:
         template = loader.get_template(template_name)
         body = template.render(context, request)
-        content_type = None             # Django will use DEFAULT_CONTENT_TYPE
+        content_type = None             # Django will use 'text/html'.
     except TemplateDoesNotExist:
         if template_name != ERROR_404_TEMPLATE_NAME:
             # Reraise if it's a missing custom template.
             raise
+        # Render template (even though there are no substitutions) to allow
+        # inspecting the context in tests.
         template = Engine().from_string(
             '<h1>Not Found</h1>'
             '<p>The requested resource was not found on this server.</p>')

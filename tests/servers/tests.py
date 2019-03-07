@@ -194,10 +194,10 @@ class LiveServerPort(LiveServerBase):
         TestCase = type("TestCase", (LiveServerBase,), {})
         try:
             TestCase.setUpClass()
-        except socket.error as e:
+        except OSError as e:
             if e.errno == errno.EADDRINUSE:
                 # We're out of ports, LiveServerTestCase correctly fails with
-                # a socket error.
+                # an OSError.
                 return
             # Unexpected error.
             raise
@@ -209,8 +209,7 @@ class LiveServerPort(LiveServerBase):
                 "Acquired duplicate server addresses for server threads: %s" % self.live_server_url
             )
         finally:
-            if hasattr(TestCase, 'server_thread'):
-                TestCase.server_thread.terminate()
+            TestCase.tearDownClass()
 
     def test_specified_port_bind(self):
         """LiveServerTestCase.port customizes the server's port."""
@@ -227,8 +226,7 @@ class LiveServerPort(LiveServerBase):
                 'Did not use specified port for LiveServerTestCase thread: %s' % TestCase.port
             )
         finally:
-            if hasattr(TestCase, 'server_thread'):
-                TestCase.server_thread.terminate()
+            TestCase.tearDownClass()
 
 
 class LiverServerThreadedTests(LiveServerBase):

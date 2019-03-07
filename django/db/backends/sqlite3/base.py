@@ -4,6 +4,7 @@ SQLite backend for the sqlite3 module in the standard library.
 import datetime
 import decimal
 import functools
+import hashlib
 import math
 import operator
 import re
@@ -57,6 +58,13 @@ def list_aggregate(function):
     """
     return type('ListAggregate', (list,), {'finalize': function, 'step': list.append})
 
+
+def check_sqlite_version():
+    if Database.sqlite_version_info < (3, 8, 3):
+        raise ImproperlyConfigured('SQLite 3.8.3 or later is required (found %s).' % Database.sqlite_version)
+
+
+check_sqlite_version()
 
 Database.register_converter("bool", b'1'.__eq__)
 Database.register_converter("time", decoder(parse_time))
@@ -210,11 +218,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         conn.create_function('LN', 1, none_guard(math.log))
         conn.create_function('LOG', 2, none_guard(lambda x, y: math.log(y, x)))
         conn.create_function('LPAD', 3, _sqlite_lpad)
+        conn.create_function('MD5', 1, none_guard(lambda x: hashlib.md5(x.encode()).hexdigest()))
         conn.create_function('MOD', 2, none_guard(math.fmod))
         conn.create_function('PI', 0, lambda: math.pi)
         conn.create_function('POWER', 2, none_guard(operator.pow))
         conn.create_function('RADIANS', 1, none_guard(math.radians))
         conn.create_function('REPEAT', 2, none_guard(operator.mul))
+        conn.create_function('REVERSE', 1, none_guard(lambda x: x[::-1]))
         conn.create_function('RPAD', 3, _sqlite_rpad)
         conn.create_function('SIN', 1, none_guard(math.sin))
         conn.create_function('SQRT', 1, none_guard(math.sqrt))

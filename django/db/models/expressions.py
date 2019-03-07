@@ -7,6 +7,7 @@ from django.core.exceptions import EmptyResultSet, FieldError
 from django.db import connection
 from django.db.models import fields
 from django.db.models.query_utils import Q
+from django.db.utils import NotSupportedError
 from django.utils.deconstruct import deconstructible
 from django.utils.functional import cached_property
 from django.utils.hashable import make_hashable
@@ -807,7 +808,7 @@ class Ref(Expression):
         return self
 
     def as_sql(self, compiler, connection):
-        return "%s" % connection.ops.quote_name(self.refs), []
+        return connection.ops.quote_name(self.refs), []
 
     def get_group_by_cols(self):
         return [self]
@@ -994,6 +995,7 @@ class Subquery(Expression):
     query which will be resolved when it is applied to that query.
     """
     template = '(%(subquery)s)'
+    contains_aggregate = False
 
     def __init__(self, queryset, output_field=None, **extra):
         self.queryset = queryset
@@ -1236,6 +1238,8 @@ class Window(Expression):
 
     def as_sql(self, compiler, connection, template=None):
         connection.ops.check_expression_support(self)
+        if not connection.features.supports_over_clause:
+            raise NotSupportedError('This backend does not support window expressions.')
         expr_sql, params = compiler.compile(self.source_expression)
         window_sql, window_params = [], []
 
@@ -1250,12 +1254,12 @@ class Window(Expression):
         if self.order_by is not None:
             window_sql.append(' ORDER BY ')
             order_sql, order_params = compiler.compile(self.order_by)
-            window_sql.extend(''.join(order_sql))
+            window_sql.extend(order_sql)
             window_params.extend(order_params)
 
         if self.frame:
             frame_sql, frame_params = compiler.compile(self.frame)
-            window_sql.extend(' ' + frame_sql)
+            window_sql.append(' ' + frame_sql)
             window_params.extend(frame_params)
 
         params.extend(window_params)

@@ -12,18 +12,16 @@ import custom_migration_operations.more_operations
 import custom_migration_operations.operations
 
 from django import get_version
-from django.conf import settings
+from django.conf import SettingsReference, settings
 from django.core.validators import EmailValidator, RegexValidator
 from django.db import migrations, models
-from django.db.migrations.writer import (
-    MigrationWriter, OperationWriter, SettingsReference,
-)
+from django.db.migrations.serializer import BaseSerializer
+from django.db.migrations.writer import MigrationWriter, OperationWriter
 from django.test import SimpleTestCase
 from django.utils.deconstruct import deconstructible
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import get_default_timezone, get_fixed_timezone, utc
 from django.utils.translation import gettext_lazy as _
-from django.utils.version import PY36
 
 from .models import FoodManager, FoodQuerySet
 
@@ -414,10 +412,7 @@ class WriterTests(SimpleTestCase):
         # Test a string regex with flag
         validator = RegexValidator(r'^[0-9]+$', flags=re.S)
         string = MigrationWriter.serialize(validator)[0]
-        if PY36:
-            self.assertEqual(string, "django.core.validators.RegexValidator('^[0-9]+$', flags=re.RegexFlag(16))")
-        else:
-            self.assertEqual(string, "django.core.validators.RegexValidator('^[0-9]+$', flags=16)")
+        self.assertEqual(string, "django.core.validators.RegexValidator('^[0-9]+$', flags=re.RegexFlag(16))")
         self.serialize_round_trip(validator)
 
         # Test message and code
@@ -655,3 +650,18 @@ class WriterTests(SimpleTestCase):
 
         string = MigrationWriter.serialize(models.CharField(default=DeconstructibleInstances))[0]
         self.assertEqual(string, "models.CharField(default=migrations.test_writer.DeconstructibleInstances)")
+
+    def test_register_serializer(self):
+        class ComplexSerializer(BaseSerializer):
+            def serialize(self):
+                return 'complex(%r)' % self.value, {}
+
+        MigrationWriter.register_serializer(complex, ComplexSerializer)
+        self.assertSerializedEqual(complex(1, 2))
+        MigrationWriter.unregister_serializer(complex)
+        with self.assertRaisesMessage(ValueError, 'Cannot serialize: (1+2j)'):
+            self.assertSerializedEqual(complex(1, 2))
+
+    def test_register_non_serializer(self):
+        with self.assertRaisesMessage(ValueError, "'TestModel1' must inherit from 'BaseSerializer'."):
+            MigrationWriter.register_serializer(complex, TestModel1)

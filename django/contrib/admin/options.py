@@ -2,7 +2,6 @@ import copy
 import json
 import operator
 import re
-from collections import OrderedDict
 from functools import partial, reduce, update_wrapper
 from urllib.parse import quote as urlquote
 
@@ -45,7 +44,6 @@ from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.html import format_html
 from django.utils.http import urlencode
-from django.utils.inspect import get_func_args
 from django.utils.safestring import mark_safe
 from django.utils.text import capfirst, format_lazy, get_text_list
 from django.utils.translation import gettext as _, ngettext
@@ -587,12 +585,11 @@ class ModelAdmin(BaseModelAdmin):
         for inline_class in self.inlines:
             inline = inline_class(self.model, self.admin_site)
             if request:
-                inline_has_add_permission = inline._has_add_permission(request, obj)
                 if not (inline.has_view_or_change_permission(request, obj) or
-                        inline_has_add_permission or
+                        inline.has_add_permission(request, obj) or
                         inline.has_delete_permission(request, obj)):
                     continue
-                if not inline_has_add_permission:
+                if not inline.has_add_permission(request, obj):
                     inline.max_num = 0
             inline_instances.append(inline)
 
@@ -684,10 +681,7 @@ class ModelAdmin(BaseModelAdmin):
         exclude = exclude or None
 
         # Remove declared form fields which are in readonly_fields.
-        new_attrs = OrderedDict.fromkeys(
-            f for f in readonly_fields
-            if f in self.form.declared_fields
-        )
+        new_attrs = dict.fromkeys(f for f in readonly_fields if f in self.form.declared_fields)
         form = type(self.form.__name__, (self.form,), new_attrs)
 
         defaults = {
@@ -888,13 +882,9 @@ class ModelAdmin(BaseModelAdmin):
         # If self.actions is set to None that means actions are disabled on
         # this page.
         if self.actions is None or IS_POPUP_VAR in request.GET:
-            return OrderedDict()
+            return {}
         actions = self._filter_actions_by_permissions(request, self._get_base_actions())
-        # Convert the actions into an OrderedDict keyed by name.
-        return OrderedDict(
-            (name, (func, name, desc))
-            for func, name, desc in actions
-        )
+        return {name: (func, name, desc) for func, name, desc in actions}
 
     def get_action_choices(self, request, default_choices=BLANK_CHOICE_DASH):
         """
@@ -1475,7 +1465,7 @@ class ModelAdmin(BaseModelAdmin):
         for inline, formset in zip(inline_instances, formsets):
             fieldsets = list(inline.get_fieldsets(request, obj))
             readonly = list(inline.get_readonly_fields(request, obj))
-            has_add_permission = inline._has_add_permission(request, obj)
+            has_add_permission = inline.has_add_permission(request, obj)
             has_change_permission = inline.has_change_permission(request, obj)
             has_delete_permission = inline.has_delete_permission(request, obj)
             has_view_permission = inline.has_view_permission(request, obj)
@@ -2011,11 +2001,6 @@ class InlineModelAdmin(BaseModelAdmin):
             js.append('collapse%s.js' % extra)
         return forms.Media(js=['admin/js/%s' % url for url in js])
 
-    def _has_add_permission(self, request, obj):
-        # RemovedInDjango30Warning: obj will be a required argument.
-        args = get_func_args(self.has_add_permission)
-        return self.has_add_permission(request, obj) if 'obj' in args else self.has_add_permission(request)
-
     def get_extra(self, request, obj=None, **kwargs):
         """Hook for customizing the number of extra inline forms."""
         return self.extra
@@ -2061,7 +2046,7 @@ class InlineModelAdmin(BaseModelAdmin):
 
         base_model_form = defaults['form']
         can_change = self.has_change_permission(request, obj) if request else True
-        can_add = self._has_add_permission(request, obj) if request else True
+        can_add = self.has_add_permission(request, obj) if request else True
 
         class DeleteProtectedModelForm(base_model_form):
 

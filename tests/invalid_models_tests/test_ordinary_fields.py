@@ -2,7 +2,7 @@ import unittest
 
 from django.core.checks import Error, Warning as DjangoWarning
 from django.db import connection, models
-from django.test import SimpleTestCase, skipIfDBFeature
+from django.test import SimpleTestCase, TestCase, skipIfDBFeature
 from django.test.utils import isolate_apps, override_settings
 from django.utils.functional import lazy
 from django.utils.timezone import now
@@ -156,14 +156,14 @@ class CharFieldTests(SimpleTestCase):
                 self.display = display
 
             def __iter__(self):
-                return (x for x in [self.value, self.display])
+                return iter((self.value, self.display))
 
             def __len__(self):
                 return 2
 
         class Things:
             def __iter__(self):
-                return (x for x in [ThingItem(1, 2), ThingItem(3, 4)])
+                return iter((ThingItem(1, 2), ThingItem(3, 4)))
 
         class ThingWithIterableChoices(models.Model):
             thing = models.CharField(max_length=100, blank=True, choices=Things())
@@ -680,7 +680,7 @@ class TimeFieldTests(SimpleTestCase):
 
 
 @isolate_apps('invalid_models_tests')
-class TextFieldTests(SimpleTestCase):
+class TextFieldTests(TestCase):
 
     @skipIfDBFeature('supports_index_on_text_field')
     def test_max_length_warning(self):

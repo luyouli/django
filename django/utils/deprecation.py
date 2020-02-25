@@ -2,15 +2,12 @@ import inspect
 import warnings
 
 
-class RemovedInDjango31Warning(DeprecationWarning):
+class RemovedInNextVersionWarning(DeprecationWarning):
     pass
 
 
 class RemovedInDjango40Warning(PendingDeprecationWarning):
     pass
-
-
-RemovedInNextVersionWarning = RemovedInDjango31Warning
 
 
 class warn_about_renamed_method:
@@ -83,7 +80,10 @@ class DeprecationInstanceCheck(type):
 
 
 class MiddlewareMixin:
+    # RemovedInDjango40Warning: when the deprecation ends, replace with:
+    #   def __init__(self, get_response):
     def __init__(self, get_response=None):
+        self._get_response_none_deprecation(get_response)
         self.get_response = get_response
         super().__init__()
 
@@ -95,3 +95,11 @@ class MiddlewareMixin:
         if hasattr(self, 'process_response'):
             response = self.process_response(request, response)
         return response
+
+    def _get_response_none_deprecation(self, get_response):
+        if get_response is None:
+            warnings.warn(
+                'Passing None for the middleware get_response argument is '
+                'deprecated.',
+                RemovedInDjango40Warning, stacklevel=3,
+            )

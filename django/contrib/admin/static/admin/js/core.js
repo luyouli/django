@@ -139,9 +139,9 @@ function findPosY(obj) {
         return result;
     };
 
-// ----------------------------------------------------------------------------
-// String object extensions
-// ----------------------------------------------------------------------------
+    // ----------------------------------------------------------------------------
+    // String object extensions
+    // ----------------------------------------------------------------------------
     String.prototype.strptime = function(format) {
         var split_format = format.split(/[.\-/]/);
         var date = this.split(/[.\-/]/);
@@ -149,18 +149,25 @@ function findPosY(obj) {
         var day, month, year;
         while (i < split_format.length) {
             switch (split_format[i]) {
-                case "%d":
-                    day = date[i];
-                    break;
-                case "%m":
-                    month = date[i] - 1;
-                    break;
-                case "%Y":
+            case "%d":
+                day = date[i];
+                break;
+            case "%m":
+                month = date[i] - 1;
+                break;
+            case "%Y":
+                year = date[i];
+                break;
+            case "%y":
+                // A %y value in the range of [00, 68] is in the current
+                // century, while [69, 99] is in the previous century,
+                // according to the Open Group Specification.
+                if (parseInt(date[i], 10) >= 69) {
                     year = date[i];
-                    break;
-                case "%y":
-                    year = date[i];
-                    break;
+                } else {
+                    year = (new Date(Date.UTC(date[i], 0))).getUTCFullYear() + 100;
+                }
+                break;
             }
             ++i;
         }

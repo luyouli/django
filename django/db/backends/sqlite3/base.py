@@ -16,12 +16,14 @@ from sqlite3 import dbapi2 as Database
 import pytz
 
 from django.core.exceptions import ImproperlyConfigured
-from django.db import utils
+from django.db import IntegrityError
 from django.db.backends import utils as backend_utils
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.utils import timezone
+from django.utils.asyncio import async_unsafe
 from django.utils.dateparse import parse_datetime, parse_time
 from django.utils.duration import duration_microseconds
+from django.utils.regex_helper import _lazy_re_compile
 
 from .client import DatabaseClient                          # isort:skip
 from .creation import DatabaseCreation                      # isort:skip
@@ -100,21 +102,25 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         'GenericIPAddressField': 'char(39)',
         'NullBooleanField': 'bool',
         'OneToOneField': 'integer',
+        'PositiveBigIntegerField': 'bigint unsigned',
         'PositiveIntegerField': 'integer unsigned',
         'PositiveSmallIntegerField': 'smallint unsigned',
         'SlugField': 'varchar(%(max_length)s)',
+        'SmallAutoField': 'integer',
         'SmallIntegerField': 'smallint',
         'TextField': 'text',
         'TimeField': 'time',
         'UUIDField': 'char(32)',
     }
     data_type_check_constraints = {
+        'PositiveBigIntegerField': '"%(column)s" >= 0',
         'PositiveIntegerField': '"%(column)s" >= 0',
         'PositiveSmallIntegerField': '"%(column)s" >= 0',
     }
     data_types_suffix = {
         'AutoField': 'AUTOINCREMENT',
         'BigAutoField': 'AUTOINCREMENT',
+        'SmallAutoField': 'AUTOINCREMENT',
     }
     # SQLite requires LIKE statements to include an ESCAPE clause if the value
     # being escaped has a percent or underscore in it.
@@ -170,7 +176,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 "settings.DATABASES is improperly configured. "
                 "Please supply the NAME value.")
         kwargs = {
-            'database': settings_dict['NAME'],
+            # TODO: Remove str() when dropping support for PY36.
+            # https://bugs.python.org/issue33496
+            'database': str(settings_dict['NAME']),
             'detect_types': Database.PARSE_DECLTYPES | Database.PARSE_COLNAMES,
             **settings_dict['OPTIONS'],
         }
@@ -191,6 +199,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         kwargs.update({'check_same_thread': False, 'uri': True})
         return kwargs
 
+    @async_unsafe
     def get_new_connection(self, conn_params):
         conn = Database.connect(**conn_params)
         conn.create_function("django_date_extract", 2, _sqlite_datetime_extract)
@@ -248,6 +257,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def create_cursor(self, name=None):
         return self.connection.cursor(factory=SQLiteCursorWrapper)
 
+    @async_unsafe
     def close(self):
         self.validate_thread_sharing()
         # If database is in memory, closing the connection destroys the
@@ -286,7 +296,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         return not bool(enabled)
 
     def enable_constraint_checking(self):
-        self.cursor().execute('PRAGMA foreign_keys = ON')
+        with self.cursor() as cursor:
+            cursor.execute('PRAGMA foreign_keys = ON')
 
     def check_constraints(self, table_names=None):
         """
@@ -299,7 +310,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         if self.features.supports_pragma_foreign_key_check:
             with self.cursor() as cursor:
                 if table_names is None:
-                    violations = self.cursor().execute('PRAGMA foreign_key_check').fetchall()
+                    violations = cursor.execute('PRAGMA foreign_key_check').fetchall()
                 else:
                     violations = chain.from_iterable(
                         cursor.execute('PRAGMA foreign_key_check(%s)' % table_name).fetchall()
@@ -318,7 +329,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                         ),
                         (rowid,),
                     ).fetchone()
-                    raise utils.IntegrityError(
+                    raise IntegrityError(
                         "The row in table '%s' with primary key '%s' has an "
                         "invalid foreign key: %s.%s contains a value '%s' that "
                         "does not have a corresponding value in %s.%s." % (
@@ -350,7 +361,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                             )
                         )
                         for bad_row in cursor.fetchall():
-                            raise utils.IntegrityError(
+                            raise IntegrityError(
                                 "The row in table '%s' with primary key '%s' has an "
                                 "invalid foreign key: %s.%s contains a value '%s' that "
                                 "does not have a corresponding value in %s.%s." % (
@@ -375,7 +386,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         return self.creation.is_in_memory_db(self.settings_dict['NAME'])
 
 
-FORMAT_QMARK_REGEX = re.compile(r'(?<!%)%s')
+FORMAT_QMARK_REGEX = _lazy_re_compile(r'(?<!%)%s')
 
 
 class SQLiteCursorWrapper(Database.Cursor):
@@ -408,6 +419,14 @@ def _sqlite_datetime_parse(dt, tzname=None, conn_tzname=None):
     if conn_tzname:
         dt = dt.replace(tzinfo=pytz.timezone(conn_tzname))
     if tzname is not None and tzname != conn_tzname:
+        sign_index = tzname.find('+') + tzname.find('-') + 1
+        if sign_index > -1:
+            sign = tzname[sign_index]
+            tzname, offset = tzname.split(sign)
+            if offset:
+                hours, minutes = offset.split(':')
+                offset_delta = datetime.timedelta(hours=int(hours), minutes=int(minutes))
+                dt += offset_delta if sign == '+' else -offset_delta
         dt = timezone.localtime(dt, pytz.timezone(tzname))
     return dt
 
@@ -465,6 +484,8 @@ def _sqlite_datetime_extract(lookup_type, dt, tzname=None, conn_tzname=None):
         return None
     if lookup_type == 'week_day':
         return (dt.isoweekday() % 7) + 1
+    elif lookup_type == 'iso_week_day':
+        return dt.isoweekday()
     elif lookup_type == 'week':
         return dt.isocalendar()[1]
     elif lookup_type == 'quarter':

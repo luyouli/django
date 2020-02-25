@@ -604,6 +604,14 @@ class Album(models.Model):
     title = models.CharField(max_length=30)
 
 
+class Song(models.Model):
+    name = models.CharField(max_length=20)
+    album = models.ForeignKey(Album, on_delete=models.RESTRICT)
+
+    def __str__(self):
+        return self.name
+
+
 class Employee(Person):
     code = models.CharField(max_length=20)
 
@@ -864,12 +872,12 @@ class EmptyModelMixin(models.Model):
 
 
 class State(models.Model):
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=100, verbose_name='State verbose_name')
 
 
 class City(models.Model):
     state = models.ForeignKey(State, models.CASCADE)
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=100, verbose_name='City verbose_name')
 
     def get_absolute_url(self):
         return '/dummy/%s/' % self.pk

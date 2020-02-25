@@ -113,9 +113,9 @@ def decorator_from_middleware(middleware_class):
 
 def make_middleware_decorator(middleware_class):
     def _make_decorator(*m_args, **m_kwargs):
-        middleware = middleware_class(*m_args, **m_kwargs)
-
         def _decorator(view_func):
+            middleware = middleware_class(view_func, *m_args, **m_kwargs)
+
             @wraps(view_func)
             def _wrapped_view(request, *args, **kwargs):
                 if hasattr(middleware, 'process_request'):
@@ -150,15 +150,3 @@ def make_middleware_decorator(middleware_class):
             return _wrapped_view
         return _decorator
     return _make_decorator
-
-
-class classproperty:
-    def __init__(self, method=None):
-        self.fget = method
-
-    def __get__(self, instance, cls=None):
-        return self.fget(cls)
-
-    def getter(self, method):
-        self.fget = method
-        return self

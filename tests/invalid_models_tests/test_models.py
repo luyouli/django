@@ -3,12 +3,15 @@ import unittest
 from django.conf import settings
 from django.core.checks import Error, Warning
 from django.core.checks.model_checks import _check_lazy_references
-from django.core.exceptions import ImproperlyConfigured
 from django.db import connection, connections, models
 from django.db.models.functions import Lower
 from django.db.models.signals import post_init
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.utils import isolate_apps, override_settings, register_lookup
+
+
+class EmptyRouter:
+    pass
 
 
 def get_max_column_name_length():
@@ -117,6 +120,19 @@ class IndexTogetherTests(SimpleTestCase):
             ),
         ])
 
+    def test_pointing_to_fk(self):
+        class Foo(models.Model):
+            pass
+
+        class Bar(models.Model):
+            foo_1 = models.ForeignKey(Foo, on_delete=models.CASCADE, related_name='bar_1')
+            foo_2 = models.ForeignKey(Foo, on_delete=models.CASCADE, related_name='bar_2')
+
+            class Meta:
+                index_together = [['foo_1_id', 'foo_2']]
+
+        self.assertEqual(Bar.check(), [])
+
 
 # unique_together tests are very similar to index_together tests.
 @isolate_apps('invalid_models_tests')
@@ -204,6 +220,19 @@ class UniqueTogetherTests(SimpleTestCase):
             ),
         ])
 
+    def test_pointing_to_fk(self):
+        class Foo(models.Model):
+            pass
+
+        class Bar(models.Model):
+            foo_1 = models.ForeignKey(Foo, on_delete=models.CASCADE, related_name='bar_1')
+            foo_2 = models.ForeignKey(Foo, on_delete=models.CASCADE, related_name='bar_2')
+
+            class Meta:
+                unique_together = [['foo_1_id', 'foo_2']]
+
+        self.assertEqual(Bar.check(), [])
+
 
 @isolate_apps('invalid_models_tests')
 class IndexesTests(SimpleTestCase):
@@ -254,6 +283,52 @@ class IndexesTests(SimpleTestCase):
                 hint='This issue may be caused by multi-table inheritance.',
                 obj=Bar,
                 id='models.E016',
+            ),
+        ])
+
+    def test_pointing_to_fk(self):
+        class Foo(models.Model):
+            pass
+
+        class Bar(models.Model):
+            foo_1 = models.ForeignKey(Foo, on_delete=models.CASCADE, related_name='bar_1')
+            foo_2 = models.ForeignKey(Foo, on_delete=models.CASCADE, related_name='bar_2')
+
+            class Meta:
+                indexes = [models.Index(fields=['foo_1_id', 'foo_2'], name='index_name')]
+
+        self.assertEqual(Bar.check(), [])
+
+    def test_name_constraints(self):
+        class Model(models.Model):
+            class Meta:
+                indexes = [
+                    models.Index(fields=['id'], name='_index_name'),
+                    models.Index(fields=['id'], name='5index_name'),
+                ]
+
+        self.assertEqual(Model.check(), [
+            Error(
+                "The index name '%sindex_name' cannot start with an "
+                "underscore or a number." % prefix,
+                obj=Model,
+                id='models.E033',
+            ) for prefix in ('_', '5')
+        ])
+
+    def test_max_name_length(self):
+        index_name = 'x' * 31
+
+        class Model(models.Model):
+            class Meta:
+                indexes = [models.Index(fields=['id'], name=index_name)]
+
+        self.assertEqual(Model.check(), [
+            Error(
+                "The index name '%s' cannot be longer than 30 characters."
+                % index_name,
+                obj=Model,
+                id='models.E034',
             ),
         ])
 
@@ -742,6 +817,26 @@ class OtherModelTests(SimpleTestCase):
             )
         ])
 
+    def test_ordering_pointing_multiple_times_to_model_fields(self):
+        class Parent(models.Model):
+            field1 = models.CharField(max_length=100)
+            field2 = models.CharField(max_length=100)
+
+        class Child(models.Model):
+            parent = models.ForeignKey(Parent, models.CASCADE)
+
+            class Meta:
+                ordering = ('parent__field1__field2',)
+
+        self.assertEqual(Child.check(), [
+            Error(
+                "'ordering' refers to the nonexistent field, related field, "
+                "or lookup 'parent__field1__field2'.",
+                obj=Child,
+                id='models.E015',
+            )
+        ])
+
     def test_ordering_allows_registered_lookups(self):
         class Model(models.Model):
             test = models.CharField(max_length=100)
@@ -751,6 +846,18 @@ class OtherModelTests(SimpleTestCase):
 
         with register_lookup(models.CharField, Lower):
             self.assertEqual(Model.check(), [])
+
+    def test_ordering_pointing_to_related_model_pk(self):
+        class Parent(models.Model):
+            pass
+
+        class Child(models.Model):
+            parent = models.ForeignKey(Parent, models.CASCADE)
+
+            class Meta:
+                ordering = ('parent__pk',)
+
+        self.assertEqual(Child.check(), [])
 
     def test_ordering_pointing_to_foreignkey_field(self):
         class Parent(models.Model):
@@ -902,14 +1009,24 @@ class OtherModelTests(SimpleTestCase):
 
         self.assertEqual(ShippingMethod.check(), [])
 
-    def test_missing_parent_link(self):
-        msg = 'Add parent_link=True to invalid_models_tests.ParkingLot.parent.'
-        with self.assertRaisesMessage(ImproperlyConfigured, msg):
-            class Place(models.Model):
-                pass
+    def test_onetoone_with_parent_model(self):
+        class Place(models.Model):
+            pass
 
-            class ParkingLot(Place):
-                parent = models.OneToOneField(Place, models.CASCADE)
+        class ParkingLot(Place):
+            other_place = models.OneToOneField(Place, models.CASCADE, related_name='other_parking')
+
+        self.assertEqual(ParkingLot.check(), [])
+
+    def test_onetoone_with_explicit_parent_link_parent_model(self):
+        class Place(models.Model):
+            pass
+
+        class ParkingLot(Place):
+            place = models.OneToOneField(Place, models.CASCADE, parent_link=True, primary_key=True)
+            other_place = models.OneToOneField(Place, models.CASCADE, related_name='other_parking')
+
+        self.assertEqual(ParkingLot.check(), [])
 
     def test_m2m_table_name_clash(self):
         class Foo(models.Model):
@@ -929,6 +1046,32 @@ class OtherModelTests(SimpleTestCase):
                 obj=Foo._meta.get_field('bar'),
                 id='fields.E340',
             )
+        ])
+
+    @override_settings(DATABASE_ROUTERS=['invalid_models_tests.test_models.EmptyRouter'])
+    def test_m2m_table_name_clash_database_routers_installed(self):
+        class Foo(models.Model):
+            bar = models.ManyToManyField('Bar', db_table='myapp_bar')
+
+            class Meta:
+                db_table = 'myapp_foo'
+
+        class Bar(models.Model):
+            class Meta:
+                db_table = 'myapp_bar'
+
+        self.assertEqual(Foo.check(), [
+            Warning(
+                "The field's intermediary table 'myapp_bar' clashes with the "
+                "table name of 'invalid_models_tests.Bar'.",
+                obj=Foo._meta.get_field('bar'),
+                hint=(
+                    "You have configured settings.DATABASE_ROUTERS. Verify "
+                    "that the table of 'invalid_models_tests.Bar' is "
+                    "correctly routed to a separate database."
+                ),
+                id='fields.W344',
+            ),
         ])
 
     def test_m2m_field_table_name_clash(self):
@@ -956,6 +1099,32 @@ class OtherModelTests(SimpleTestCase):
             )
         ])
 
+    @override_settings(DATABASE_ROUTERS=['invalid_models_tests.test_models.EmptyRouter'])
+    def test_m2m_field_table_name_clash_database_routers_installed(self):
+        class Foo(models.Model):
+            pass
+
+        class Bar(models.Model):
+            foos = models.ManyToManyField(Foo, db_table='clash')
+
+        class Baz(models.Model):
+            foos = models.ManyToManyField(Foo, db_table='clash')
+
+        self.assertEqual(Bar.check() + Baz.check(), [
+            Warning(
+                "The field's intermediary table 'clash' clashes with the "
+                "table name of 'invalid_models_tests.%s.foos'."
+                % clashing_model,
+                obj=model_cls._meta.get_field('foos'),
+                hint=(
+                    "You have configured settings.DATABASE_ROUTERS. Verify "
+                    "that the table of 'invalid_models_tests.%s.foos' is "
+                    "correctly routed to a separate database." % clashing_model
+                ),
+                id='fields.W344',
+            ) for model_cls, clashing_model in [(Bar, 'Baz'), (Baz, 'Bar')]
+        ])
+
     def test_m2m_autogenerated_table_name_clash(self):
         class Foo(models.Model):
             class Meta:
@@ -975,6 +1144,33 @@ class OtherModelTests(SimpleTestCase):
                 obj=Bar._meta.get_field('foos'),
                 id='fields.E340',
             )
+        ])
+
+    @override_settings(DATABASE_ROUTERS=['invalid_models_tests.test_models.EmptyRouter'])
+    def test_m2m_autogenerated_table_name_clash_database_routers_installed(self):
+        class Foo(models.Model):
+            class Meta:
+                db_table = 'bar_foos'
+
+        class Bar(models.Model):
+            # The autogenerated db_table is bar_foos.
+            foos = models.ManyToManyField(Foo)
+
+            class Meta:
+                db_table = 'bar'
+
+        self.assertEqual(Bar.check(), [
+            Warning(
+                "The field's intermediary table 'bar_foos' clashes with the "
+                "table name of 'invalid_models_tests.Foo'.",
+                obj=Bar._meta.get_field('foos'),
+                hint=(
+                    "You have configured settings.DATABASE_ROUTERS. Verify "
+                    "that the table of 'invalid_models_tests.Foo' is "
+                    "correctly routed to a separate database."
+                ),
+                id='fields.W344',
+            ),
         ])
 
     def test_m2m_unmanaged_shadow_models_not_checked(self):
@@ -1099,7 +1295,7 @@ class OtherModelTests(SimpleTestCase):
 
 
 @isolate_apps('invalid_models_tests')
-class ConstraintsTests(SimpleTestCase):
+class ConstraintsTests(TestCase):
     def test_check_constraints(self):
         class Model(models.Model):
             age = models.IntegerField()
@@ -1107,7 +1303,7 @@ class ConstraintsTests(SimpleTestCase):
             class Meta:
                 constraints = [models.CheckConstraint(check=models.Q(age__gte=18), name='is_adult')]
 
-        errors = Model.check()
+        errors = Model.check(databases=self.databases)
         warn = Warning(
             '%s does not support check constraints.' % connection.display_name,
             hint=(
@@ -1117,5 +1313,15 @@ class ConstraintsTests(SimpleTestCase):
             obj=Model,
             id='models.W027',
         )
-        expected = [] if connection.features.supports_table_check_constraints else [warn, warn]
+        expected = [] if connection.features.supports_table_check_constraints else [warn]
         self.assertCountEqual(errors, expected)
+
+    def test_check_constraints_required_db_features(self):
+        class Model(models.Model):
+            age = models.IntegerField()
+
+            class Meta:
+                required_db_features = {'supports_table_check_constraints'}
+                constraints = [models.CheckConstraint(check=models.Q(age__gte=18), name='is_adult')]
+
+        self.assertEqual(Model.check(databases=self.databases), [])
